@@ -2,12 +2,16 @@
 <html lang="sv">
 <head>
   <meta charset="UTF-8">
-  <title>Ackordeditor</title>
+  <title>Ackordeditor 2.0</title>
   <style>
     body {
       font-family: monospace;
       background-color: #f4f4f4;
       padding: 20px;
+    }
+    input, textarea, button {
+      font-family: monospace;
+      font-size: 1em;
     }
     #editor {
       white-space: pre;
@@ -17,6 +21,7 @@
       min-height: 400px;
       width: 100%;
       box-sizing: border-box;
+      position: relative;
     }
     .line-container {
       margin-bottom: 10px;
@@ -27,21 +32,14 @@
     }
     .chord-line {
       color: blue;
-      cursor: pointer;
-      min-height: 1em;
+      position: relative;
     }
-    input.chord-input {
+    .hover-box {
       position: absolute;
-      font-family: monospace;
-      font-size: 1em;
-      width: 3em;
-    }
-    button {
-      margin: 5px;
-    }
-    label {
-      display: inline-block;
-      width: 80px;
+      width: 8px;
+      height: 1.2em;
+      background-color: rgba(255, 230, 130, 0.5);
+      pointer-events: none;
     }
     .metadata {
       margin-bottom: 15px;
@@ -50,7 +48,7 @@
 </head>
 <body>
 
-<h2>Ackordeditor</h2>
+<h2>Ackordeditor 2.0</h2>
 
 <div class="metadata">
   <label for="title">Titel:</label>
@@ -61,7 +59,10 @@
   <input type="text" id="key"><br>
 </div>
 
-<textarea id="textInput" rows="10" style="width: 100%;" placeholder="Klistra in låttext här..."></textarea>
+<label for="intro">Intro-ackord:</label><br>
+<textarea id="intro" rows="2" style="width: 100%; font-family: monospace;"></textarea><br>
+
+<textarea id="textInput" rows="8" style="width: 100%;" placeholder="Klistra in låttext här..."></textarea>
 <br>
 <button onclick="loadText()">Ladda in text</button>
 <button onclick="transposeChords(1)">Transponera ▲</button>
@@ -74,6 +75,10 @@
 
 <script>
 const scale = ["A", "Bb", "B", "C", "C#", "D", "Eb", "E", "F", "F#", "G", "G#"];
+const hoverBox = document.createElement('div');
+hoverBox.className = 'hover-box';
+let currentChordLine = null;
+let hoverPos = 0;
 
 function loadText() {
   const text = document.getElementById('textInput').value.trim();
@@ -90,11 +95,16 @@ function loadText() {
     const chordLine = document.createElement('div');
     chordLine.className = 'chord-line';
     chordLine.textContent = leftPadding + " ".repeat(line.length);
-    chordLine.addEventListener('click', function(e) {
+
+    chordLine.addEventListener('mousemove', function (e) {
       const rect = chordLine.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const pos = Math.floor(x / 8);
-      insertChordInput(chordLine, pos);
+      hoverPos = pos;
+      currentChordLine = chordLine;
+      hoverBox.style.left = (pos * 8) + 'px';
+      hoverBox.style.top = (chordLine.offsetTop) + 'px';
+      chordLine.appendChild(hoverBox);
     });
 
     const textLine = document.createElement('div');
@@ -107,52 +117,56 @@ function loadText() {
   });
 }
 
-function insertChordInput(chordLine, pos) {
-  const input = document.createElement('input');
-  input.className = 'chord-input';
-  input.style.left = (pos * 8) + 'px';
-  input.style.top = '0px';
+document.addEventListener('keydown', function (e) {
+  if (!currentChordLine || e.ctrlKey || e.metaKey) return;
 
-  chordLine.style.position = 'relative';
-  chordLine.appendChild(input);
-  input.focus();
-
-  input.addEventListener('blur', function() {
-    const val = input.value.trim();
-    if (val) {
-      const text = chordLine.textContent;
-      const newText = text.substring(0, pos) + val + text.substring(pos + val.length);
-      chordLine.textContent = newText;
+  let key = e.key;
+  if (key.length === 1) {
+    let input = key.toUpperCase();
+    if (e.shiftKey || /^[#bm7\/]$/i.test(key)) {
+      input = key;
     }
-    input.remove();
-  });
-}
+
+    const text = currentChordLine.textContent;
+    const pre = text.substring(0, hoverPos);
+    const post = text.substring(hoverPos + input.length);
+    currentChordLine.textContent = pre + input + post;
+  }
+});
 
 function transposeChords(step) {
   const chordLines = document.querySelectorAll('.chord-line');
   chordLines.forEach(line => {
-    let text = line.textContent;
-
-    scale.forEach((note, i) => {
-      const regex = new RegExp(`\\b${note}(m|7|maj7|sus4|dim|aug|add9)?\\b`, "g");
-
-      text = text.replace(regex, (match, suffix = "") => {
-        const newIndex = (i + step + scale.length) % scale.length;
-        return scale[newIndex] + suffix;
-      });
-    });
-
-    line.textContent = text;
+    line.textContent = transposeLine(line.textContent, step);
   });
+}
+
+function transposeLine(line, step) {
+  return line.replace(/\b([A-G][b#]?[^/\s]*)\/?([A-G][b#]?)?\b/g, (_, chord, bass) => {
+    const transChord = transposeChordRoot(chord, step);
+    const transBass = bass ? transposeChordRoot(bass, step) : "";
+    return transChord + (transBass ? "/" + transBass : "");
+  });
+}
+
+function transposeChordRoot(ch, step) {
+  const match = ch.match(/^([A-G][b#]?)(.*)/);
+  if (!match) return ch;
+  const [_, root, suffix] = match;
+  const i = scale.indexOf(root);
+  if (i === -1) return ch;
+  const newRoot = scale[(i + step + scale.length) % scale.length];
+  return newRoot + suffix;
 }
 
 function exportText() {
   const title = document.getElementById("title").value;
   const composer = document.getElementById("composer").value;
   const key = document.getElementById("key").value;
+  const intro = document.getElementById("intro").value;
 
   const lines = document.querySelectorAll('.line-container');
-  let output = `Titel: ${title}\nKompositör: ${composer}\nTonart: ${key}\n\n`;
+  let output = `Titel: ${title}\nKompositör: ${composer}\nTonart: ${key}\n\nIntro:\n${intro}\n\n`;
 
   lines.forEach(container => {
     const chord = container.querySelector('.chord-line').textContent;
